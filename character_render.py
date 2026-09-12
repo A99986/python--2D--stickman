@@ -1,4 +1,4 @@
-"""Character rendering for the two-player stickman arena.
+﻿"""Character rendering for the two-player stickman arena.
 
 This module owns the visual side of the characters.  It deliberately does not
 simulate movement: ``draw_stickman`` only consumes the state produced by the
@@ -43,8 +43,8 @@ SWORD_BLADE = (228, 234, 229)
 SWORD_EDGE = (48, 54, 54)
 SWORD_GUARD = (185, 192, 187)
 SWORD_GRIP = (97, 102, 99)
-SWORD_ANGLE_START = -2.5
-SWORD_ANGLE_END = -0.3
+SWORD_ANGLE_START = -1.4  # 前方头顶起劈(cos>0,全程位于面朝方向)
+SWORD_ANGLE_END = 0.4     # 向前下方劈落
 
 POSE_NAMES = (
     "idle",
@@ -186,7 +186,7 @@ def _draw_skill_effect(screen, origin, facing, scale, anim_time, color, progress
     """Draw the sword slash and energy burst used by the skill pose."""
     x, y = origin
     centre = (
-        int(round(x)),
+        int(round(x + facing * 28 * scale)),  # 光晕前移到前方
         int(round(y - (LEG_LENGTH + TORSO_LENGTH) * scale)),
     )
     radius = int(round((LEG_LENGTH + TORSO_LENGTH + 18) * scale))

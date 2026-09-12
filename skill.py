@@ -44,8 +44,8 @@ SKILL_DEFAULT_CONFIG = {
     # CD 与动画等长: 0.42s 动画播放结束时冷却同步转好,可立即再次释放。
     "cooldown": 0.42,
     "duration": 0.42,
-    "active_start": 0.10,
-    "active_end": 0.38,
+    "active_start": 0.20,
+    "active_end": 0.60,
     "reach_scale": 1.0,
     "height_scale": 1.0,
 }
@@ -186,13 +186,15 @@ def _player_geometry(player_state):
 def get_skill_hitbox(player_state, progress=None, config=None):
     """Return the active skill damage rectangle, or ``None``.
 
-    The rectangle follows the rendered sword path: it starts raised behind
-    the player and sweeps forward and slightly downward.  This keeps the
-    collision box aligned with the effect drawn by ``character_render``.
+    The hitbox lies STRICTLY IN FRONT of the player, along the facing
+    direction: its near edge never crosses the body centre, so there is no
+    damage behind the character. It tracks the forward sword slash rendered
+    by ``character_render`` (the blade stays in front for the whole active
+    window). Flip ``facing`` and the hitbox flips to the other side.
 
     ``progress`` should be the same normalized 0.0..1.0 skill progress passed
-    to the renderer.  When omitted, the function reads the active skill phase
-    from ``player_state``.
+    to the renderer. When omitted, the function reads the active phase from
+    ``player_state``.
     """
     if config is None:
         config = SKILL_DEFAULT_CONFIG
@@ -216,46 +218,41 @@ def get_skill_hitbox(player_state, progress=None, config=None):
     angle = cr.SWORD_ANGLE_START + (
         cr.SWORD_ANGLE_END - cr.SWORD_ANGLE_START
     ) * eased
-    direction = (facing * math.cos(angle), math.sin(angle))
-    length = math.hypot(*direction)
-    if length <= 1e-6:
-        direction = (float(facing), 0.0)
+    dirx = math.cos(angle)
+    diry = math.sin(angle)
+    vec_len = math.hypot(dirx, diry)
+    if vec_len <= 1e-6:
+        dirx, diry = 1.0, 0.0
     else:
-        direction = (direction[0] / length, direction[1] / length)
+        dirx, diry = dirx / vec_len, diry / vec_len
 
     reach_scale = float(config["reach_scale"])
-    height_scale = float(config["height_scale"])
 
-    # The skill pose's extended right hand is local (34, -50) in the renderer.
+    # 技能姿态前伸的右手,局部坐标 (34, -50)。
     hand = (
         x + 34.0 * facing * scale,
         y - 50.0 * scale,
     )
     blade_start = (
-        hand[0] + direction[0] * 8.0 * scale,
-        hand[1] + direction[1] * 8.0 * scale,
+        hand[0] + facing * dirx * 8.0 * scale,
+        hand[1] + diry * 8.0 * scale,
     )
+    blade_reach = 8.0 * scale + cr.SWORD_LENGTH * scale * reach_scale
     blade_end = (
-        hand[0] + direction[0] * (8.0 * scale + cr.SWORD_LENGTH * scale * reach_scale),
-        hand[1] + direction[1] * (8.0 * scale + cr.SWORD_LENGTH * scale * reach_scale),
+        hand[0] + facing * dirx * blade_reach,
+        hand[1] + diry * blade_reach,
     )
 
-    aura_centre = (
-        x,
-        y - (cr.LEG_LENGTH + cr.TORSO_LENGTH) * scale,
-    )
-    aura_radius = (
-        (cr.LEG_LENGTH + cr.TORSO_LENGTH + 18.0)
-        * scale
-        * progress
-        * max(0.4, height_scale)
-    )
-
-    points = (hand, blade_start, blade_end, aura_centre)
+    # 判定只取前方武器轨迹点(不再纳入以身体为中心、向身后扩散的光环)。
+    points = (hand, blade_start, blade_end)
     min_x = min(point[0] for point in points)
     min_y = min(point[1] for point in points)
     max_x = max(point[0] for point in points)
     max_y = max(point[1] for point in points)
+
+    # 垂直方向适度放宽,覆盖前方敌人头到腰,保证命中稳定。
+    min_y -= 6.0 * scale
+    max_y = max(max_y, y - 12.0 * scale)
 
     padding = max(3.0, 4.0 * scale)
     min_x -= padding
@@ -263,11 +260,12 @@ def get_skill_hitbox(player_state, progress=None, config=None):
     max_x += padding
     max_y += padding
 
-    # The aura is a circle, so its bounds can extend past the sword points.
-    min_x = min(min_x, aura_centre[0] - aura_radius)
-    min_y = min(min_y, aura_centre[1] - aura_radius)
-    max_x = max(max_x, aura_centre[0] + aura_radius)
-    max_y = max(max_y, aura_centre[1] + aura_radius)
+    # 关键: 严格朝前方 —— 近边不越过身体中心,身后零判定。
+    front_guard = 4.0 * scale
+    if facing > 0:
+        min_x = max(min_x, x - front_guard)
+    else:
+        max_x = min(max_x, x + front_guard)
 
     return pygame.Rect(
         int(round(min_x)),
