@@ -69,7 +69,7 @@ def update_players(context, dt):
         update_heal_timer(p, dt)
 
 
-def _process_skills(context, pressed):
+def _process_skills(context, held_keys):
     """处理本帧双方技能的触发与命中结算。
 
     对每个玩家依次:触发技能(冷却 / 攻击范围) -> 用攻击范围与对方身体
@@ -78,16 +78,18 @@ def _process_skills(context, pressed):
 
     Args:
         context: 全局游戏上下文。
-        pressed: ``pygame.key.get_pressed()`` 的按键状态。
+        held_keys: 当前被按住按键的 ``set``(由 KEYDOWN / KEYUP 事件维护)。
 
     Returns:
         None,直接原地修改玩家血量 / 技能状态。
     """
     players = context['players']
+    # skill._key_is_down 接受 dict(按键码 -> 布尔),由 held 集合构造。
+    key_state = {key: True for key in held_keys}
     skill_results = {}
     for pid, p in enumerate(players):
         skill_results[pid] = skill_module.skill_trigger(
-            pid, pressed, p, context['mode']
+            pid, key_state, p, context['mode']
         )
 
     for pid in (0, 1):
@@ -143,6 +145,11 @@ def game_loop(context=None, fps=FPS):
 
     clock = pygame.time.Clock()
 
+    # 当前被按住的按键集合:由 KEYDOWN / KEYUP 事件维护,比
+    # pygame.key.get_pressed() 更可靠(后者在部分 Windows 环境下可能因窗口
+    # 焦点等问题恒返回 0,导致方向 / 技能无响应)。
+    held_keys = set()
+
     running = True
     while running:
         # --- 单局对战:循环到有一方阵亡 ---
@@ -157,22 +164,24 @@ def game_loop(context=None, fps=FPS):
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
+                    held_keys.add(event.key)
                     if event.key == pygame.K_ESCAPE:
                         running = False
                     for pid, keys in KEYMAP.items():
                         if event.key == keys['jump']:
                             jump_pressed[pid] = True
+                elif event.type == pygame.KEYUP:
+                    held_keys.discard(event.key)
             if not running:
                 break
 
             # --- 输入 -> 水平速度 / 朝向 / 起跳 ---
-            pressed = pygame.key.get_pressed()
             for pid, p in enumerate(ctx['players']):
                 keys = KEYMAP[pid]
-                if pressed[keys['left']]:
+                if keys['left'] in held_keys:
                     p['vx'] = -MOVE_SPEED
                     p['facing'] = -1
-                elif pressed[keys['right']]:
+                elif keys['right'] in held_keys:
                     p['vx'] = MOVE_SPEED
                     p['facing'] = 1
                 else:
@@ -183,7 +192,7 @@ def game_loop(context=None, fps=FPS):
             update_players(ctx, dt)
 
             # --- 技能触发与命中结算 ---
-            _process_skills(ctx, pressed)
+            _process_skills(ctx, held_keys)
 
             # --- 渲染 ---
             map_module.draw_background(screen)
@@ -200,6 +209,10 @@ def game_loop(context=None, fps=FPS):
 
         if not running:
             break
+
+        # 结算画面会消费此期间的按键事件,清空 held 状态避免带入下一局
+        # (否则结算时松开的按键会被误判为仍处于按住状态)。
+        held_keys.clear()
 
         # --- 单局结算:计分并展示 ---
         if round_result != 'draw':
