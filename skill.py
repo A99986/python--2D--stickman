@@ -1,4 +1,4 @@
-"""Skill trigger and collision logic for the two-player stickman arena.
+﻿"""Skill trigger and collision logic for the two-player stickman arena.
 
 The module deliberately keeps keyboard input, cooldown bookkeeping, and
 attack-range generation separate from movement and rendering.  It expects to
@@ -41,7 +41,8 @@ SKILL_KEYS = {
 # Base timings are shared by all standard game modes.  ``game_mode`` can be a
 # dict to override one or more of these values without editing this module.
 SKILL_DEFAULT_CONFIG = {
-    "cooldown": 2.5,
+    # CD 与动画等长: 0.42s 动画播放结束时冷却同步转好,可立即再次释放。
+    "cooldown": 0.42,
     "duration": 0.42,
     "active_start": 0.10,
     "active_end": 0.38,

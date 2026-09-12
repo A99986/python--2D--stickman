@@ -1,13 +1,14 @@
-"""移动模块 —— 跳跃逻辑。
+﻿"""移动模块 —— 跳跃逻辑。
 
 实现 ``jump_logic`` 函数,在玩家可起跳时(落地且收到起跳指令)设置
 向上的初速度,交给 ``apply_gravity`` 完成后续的上升 / 下落 / 落地。
 
 职责边界(与同目录其它函数协同):
     - ``jump_logic``:只负责「起跳」——设置 ``vy`` 为负的起跳初速并把
-      ``on_ground`` 置假。
+      ``on_ground`` 置假、清除平台站立标记。
     - ``apply_gravity``:处理重力加速与垂直位移、落地。
-    - ``update_position``:处理水平位移与左右边界。
+    - ``update_position``:处理水平位移与边界。
+    - ``platform_collision``:处理悬浮平台落脚。
 
 起跳条件:
     - ``on_ground`` 为真(只有落地才能起跳,禁止二段跳)。
@@ -49,3 +50,5 @@ def jump_logic(player_state, jump_pressed):
     jump_speed = player_state.get("jump_speed", DEFAULT_JUMP_SPEED)
     player_state["vy"] = -jump_speed
     player_state["on_ground"] = False
+    # 清除平台站立标记,否则平台碰撞会把起跳的玩家重新吸附回台面。
+    player_state["standing_platform"] = None

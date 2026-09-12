@@ -1,12 +1,13 @@
-"""游戏控制模块 —— 主循环。
+﻿"""游戏控制模块 —— 主循环。
 
 实现 ``game_loop`` 函数,驱动游戏的完整运行:初始化 pygame、双模式选择、
-逐帧处理输入、更新玩家(移动 + 回血 + 技能)、渲染场景 / 血条 / 计分板,
-并在单局 / 整场结束后进入结算,直到退出。
+逐帧处理输入、更新玩家(移动 + 平台碰撞 + 回血 + 技能)、渲染场景 / 血条 /
+计分板,并在单局 / 整场结束后进入结算,直到退出。
 
 已整合的能力:
     - 双模式选择(快速 / 生存,``scoreboard.select_mode``)。
     - 双人移动 / 跳跃 / 重力 / 边界(move 模块)。
+    - 悬浮平台碰撞:可跳上站立、左右对称(move.platform_collision + map)。
     - 生存模式计时回血、受击打断(blood 模块)。
     - 技能系统:技能触发 / 冷却 / 攻击范围 / 命中伤害(skill 模块)。
     - 实时血条(``draw_health_bar``)与常驻计分板(``scoreboard.draw_scoreboard``)。
@@ -20,6 +21,7 @@ import pygame
 from move.apply_gravity import apply_gravity
 from move.update_position import update_position
 from move.jump_logic import jump_logic
+from move.platform_collision import resolve_platform_collision
 from blood.update_heal_timer import update_heal_timer
 from blood.update_hp import update_hp
 from blood.interrupt_heal import interrupt_heal
@@ -50,8 +52,8 @@ KEYMAP = {
 }
 
 
-def update_players(context, dt):
-    """推进一帧:对所有玩家执行重力、位移与回血计时。
+def update_players(context, dt, platforms=None):
+    """推进一帧:对所有玩家执行重力、位移、平台碰撞与回血计时。
 
     水平速度 ``vx`` 与起跳指令需在调用本函数之前由输入处理写入;本函数
     不依赖 pygame 显示,可独立测试。
@@ -59,13 +61,17 @@ def update_players(context, dt):
     Args:
         context: 全局游戏上下文。
         dt: 本帧耗时(秒)。
+        platforms: 当前帧悬浮平台几何(由 ``map.get_platforms`` 提供)。
 
     Returns:
         None,直接原地修改 ``context['players']``。
     """
     for p in context['players']:
+        # 记录垂直积分前的脚底高度,供平台碰撞判断本帧是否越过台面。
+        p['y_prev'] = p.get('y', 0.0)
         apply_gravity(p, dt)
         update_position(p, dt)
+        resolve_platform_collision(p, platforms if platforms is not None else [])
         update_heal_timer(p, dt)
 
 
@@ -188,15 +194,19 @@ def game_loop(context=None, fps=FPS):
                     p['vx'] = 0.0
                 jump_logic(p, jump_pressed[pid])
 
-            # --- 推进一帧(重力 / 位移 / 回血) ---
-            update_players(ctx, dt)
+            # 当前帧平台几何:更新(碰撞)与渲染共用同一份,保证所见即所碰。
+            platforms = map_module.get_platforms(ctx['round'], screen, time_s)
+
+            # --- 推进一帧(重力 / 位移 / 平台碰撞 / 回血) ---
+            update_players(ctx, dt, platforms)
 
             # --- 技能触发与命中结算 ---
             _process_skills(ctx, held_keys)
 
             # --- 渲染 ---
             map_module.draw_background(screen)
-            map_module.update_dynamic_obstacle(ctx['round'], screen, time_s)
+            map_module.update_dynamic_obstacle(ctx['round'], screen, time_s,
+                                               platforms=platforms)
             for pid, p in enumerate(ctx['players']):
                 character_render.draw_stickman(screen, pid, p)
                 draw_health_bar(screen, (p['x'], p['y'] - HEALTH_BAR_Y_OFFSET),

@@ -1,4 +1,4 @@
-"""游戏控制模块 —— 初始化游戏上下文。
+﻿"""游戏控制模块 —— 初始化游戏上下文。
 
 实现 ``init_game_context`` 函数,构建一个完整的全局游戏上下文(含两个玩家的
 移动 + 血量状态、游戏模式、计分与回合信息),并通过 ``set_global_context``
@@ -15,6 +15,7 @@
 玩家状态字段(与 move / blood 模块约定一致):
     - 移动:``x`` / ``y`` / ``vx`` / ``vy`` / ``on_ground`` / ``ground_y`` /
       ``gravity`` / ``jump_speed`` / ``min_x`` / ``max_x``。
+    - 平台:``standing_platform`` / ``y_prev``。
     - 血量:``hp`` / ``max_hp`` / ``heal_timer`` / ``heal_interval`` / ``heal_amount``。
     - 标识:``id`` / ``color``。
 """
@@ -82,6 +83,9 @@ def init_game_context(mode='survival', screen_width=DEFAULT_SCREEN_WIDTH,
             'jump_speed': DEFAULT_JUMP_SPEED,
             'min_x': 0.0,
             'max_x': float(screen_width),
+            # 平台字段
+            'standing_platform': None,
+            'y_prev': ground_y,
             # 血量字段
             'hp': float(max_hp),
             'max_hp': float(max_hp),

@@ -1,4 +1,4 @@
-import math
+﻿import math
 
 import pygame
 
@@ -17,14 +17,23 @@ PLATFORM_WIDTH = 5
 
 GROUND_MARGIN = 120  # 地面距屏幕底部的预留空间(像素),需与 init_game_context 保持一致
 
-# Each platform is a simple horizontal line.
-# Fields: x-center ratio, y ratio, length ratio, line color.
+# 悬浮平台:按「左外、左内、右内、右外」的对称顺序排列。
+# 字段: x 中心比例, y 比例, 长度比例, 线条颜色。
+# 高度依据跳跃能力设计: 起跳初速 800、重力 2000 -> 最大跳高 160px。
+#   外台 y=520(离地 80,轻松跳上); 内台 y=485(离地 115,可直接跳上,
+#   也可从外台二次起跳); 左右关于 x=0.5 严格镜像,保证双方公平。
 PLATFORMS = (
-    (0.18, 0.36, 0.14, INK_BLUE),
-    (0.42, 0.44, 0.22, INK_GRAY),
-    (0.63, 0.52, 0.17, INK_BLUE),
-    (0.84, 0.59, 0.26, INK_GRAY),
+    (0.16, 13 / 18, 9 / 64, INK_BLUE),
+    (0.37, 97 / 144, 9 / 64, INK_GRAY),
+    (0.63, 97 / 144, 9 / 64, INK_GRAY),
+    (0.84, 13 / 18, 9 / 64, INK_BLUE),
 )
+
+# 漂移对称化: 镜像对(0<->3, 1<->2)共享相位; 水平方向右侧取负、垂直方向
+# 两侧同步,确保任意时刻平台位置都关于中线对称。
+_PAIR_PHASE_X = (0.0, 1.37, 1.37, 0.0)
+_PAIR_PHASE_Y = (0.0, 0.90, 0.90, 0.0)
+_MIRROR_X = (1.0, 1.0, -1.0, -1.0)
 
 
 def _soft_ink_blob(surface, center, radius, color, max_alpha, steps=60):
@@ -162,17 +171,20 @@ def _platform_geometry(screen, current_round, time_s=None):
     platforms = []
 
     for index, (center_ratio, y_ratio, length_ratio, color) in enumerate(PLATFORMS):
-        phase = index * 1.37
+        # 对称漂移: 镜像对共享相位,水平右侧取负、垂直两侧同步。
+        phase_x = _PAIR_PHASE_X[index]
+        phase_y = _PAIR_PHASE_Y[index]
+        mirror_x = _MIRROR_X[index]
 
         if current_round <= 3:
             offset_x = 0.0
             offset_y = 0.0
         elif current_round == 4:
-            offset_x = math.sin(time_s * 0.68 + phase) * width * horizontal_range
+            offset_x = math.sin(time_s * 0.68 + phase_x) * width * horizontal_range * mirror_x
             offset_y = 0.0
         else:
-            offset_x = math.sin(time_s * 0.78 + phase * 1.7) * width * horizontal_range
-            offset_y = math.sin(time_s * 0.92 + phase * 1.3) * height * vertical_range
+            offset_x = math.sin(time_s * 0.78 + phase_x) * width * horizontal_range * mirror_x
+            offset_y = math.sin(time_s * 0.92 + phase_y) * height * vertical_range
 
         half_length = length_ratio * width * 0.5
         center_x = center_ratio * width + offset_x
@@ -188,6 +200,7 @@ def _platform_geometry(screen, current_round, time_s=None):
 
         platforms.append(
             {
+                "index": index,
                 "start": (int(round(left)), int(round(center_y))),
                 "end": (int(round(right)), int(round(center_y))),
                 "rect": pygame.Rect(
@@ -204,7 +217,16 @@ def _platform_geometry(screen, current_round, time_s=None):
     return platforms
 
 
-def update_dynamic_obstacle(current_round, screen=None, time_s=None):
+def get_platforms(current_round, screen=None, time_s=None):
+    """公开接口:返回当前帧悬浮平台的几何(渲染与碰撞共用同一份,保证一致)。"""
+    if screen is None:
+        screen = pygame.display.get_surface()
+        if screen is None:
+            raise RuntimeError("get_platforms needs a screen surface")
+    return _platform_geometry(screen, current_round, time_s)
+
+
+def update_dynamic_obstacle(current_round, screen=None, time_s=None, platforms=None):
     """Draw four minimal floating platforms for the current round.
 
     Rounds 1-3 use fixed platform positions. Round 4 adds a gentle horizontal
@@ -215,13 +237,16 @@ def update_dynamic_obstacle(current_round, screen=None, time_s=None):
         current_round: Integer round number, expected to be 1 through 5.
         screen: Optional pygame.Surface. Defaults to the display surface.
         time_s: Optional elapsed time in seconds, useful for tests.
+        platforms: Optional precomputed geometry shared with collision logic.
     """
-    if screen is None:
-        screen = pygame.display.get_surface()
+    if platforms is None:
         if screen is None:
-            raise RuntimeError("update_dynamic_obstacle needs a screen surface")
+            screen = pygame.display.get_surface()
+            if screen is None:
+                raise RuntimeError("update_dynamic_obstacle needs a screen surface")
+        platforms = _platform_geometry(screen, current_round, time_s)
 
-    for platform in _platform_geometry(screen, current_round, time_s):
+    for platform in platforms:
         pygame.draw.line(
             screen,
             platform["color"],
@@ -243,19 +268,7 @@ def get_ground_y(screen, x):
 
 
 def get_map_bounds(screen=None, current_round=1, time_s=None):
-    """Return collision regions used by the move module.
-
-    The returned dict contains:
-
-    - screen: a pygame.Rect for the full playable window.
-    - ground: the uneven terrain as its top surface points, a filled polygon,
-      and a bounding rect.
-    - platforms: the current round's platform segments as pygame.Rect objects
-      plus their line start and end points.
-
-    Pass the same current_round and time_s values used by draw_map() so the
-    collision platforms exactly match the visible platforms.
-    """
+    """Return collision regions used by the move module."""
     if screen is None:
         screen = pygame.display.get_surface()
         if screen is None:

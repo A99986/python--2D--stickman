@@ -1,4 +1,4 @@
-"""计分板模块 —— 五局三胜计分、单局 / 整场结算与双模式选择。
+﻿"""计分板模块 —— 五局三胜计分、单局 / 整场结算与双模式选择。
 
 实现整场比赛的计分与回合流转,并把分数、局数、单局 / 整场结算画面与
 双模式选择界面渲染到屏幕上:
@@ -171,6 +171,10 @@ def _reset_player(context, player):
                 'skill_cooldown_until', 'skill_key_was_down',
                 'skill_hit_players'):
         player.pop(key, None)
+
+    # 平台复位: 清除站立标记,避免跨局残留于空中平台
+    player['standing_platform'] = None
+    player['y_prev'] = ground_y
 
 
 def reset_round(context):
