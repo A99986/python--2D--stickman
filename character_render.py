@@ -27,8 +27,8 @@ import pygame
 from map import get_ground_y
 
 PLAYER_COLORS = {
-    1: (208, 58, 58),   # red stickman
-    2: (48, 110, 190),  # blue stickman
+    0: (80, 200, 255),   # player 0 (cyan)
+    1: (255, 120, 120),  # player 1 (light red)
 }
 
 SHADOW_COLOR = (73, 79, 76)
@@ -335,12 +335,15 @@ def draw_skill_effect(screen, skill_anim_info, player_state):
     )
 
     player_id = _state_get(
-        skill_anim_info, "player_id", _state_get(player_state, "player_id", 1)
+        skill_anim_info, "player_id", _state_get(player_state, "id", 0)
     )
     if player_id not in PLAYER_COLORS:
-        player_id = 1
+        player_id = 0
 
-    color = _state_get(skill_anim_info, "color", PLAYER_COLORS[player_id])
+    color = _state_get(
+        skill_anim_info, "color",
+        _state_get(player_state, "color", PLAYER_COLORS[player_id]),
+    )
     if isinstance(color, (tuple, list)) and len(color) >= 3:
         color = (int(color[0]), int(color[1]), int(color[2]))
 
@@ -364,14 +367,14 @@ def draw_stickman(screen, player_id, player_state):
         for debug overlays and for tests that verify draw calls.
     """
     if player_id not in PLAYER_COLORS:
-        raise ValueError(f"player_id must be 1 or 2, got {player_id!r}")
+        raise ValueError(f"player_id must be 0 or 1, got {player_id!r}")
 
     width, height = screen.get_size()
-    color = PLAYER_COLORS[player_id]
+    color = _state_get(player_state, "color", PLAYER_COLORS[player_id])
 
-    raw_x = float(_state_get(player_state, "x", width * (0.22 if player_id == 1 else 0.78)))
+    raw_x = float(_state_get(player_state, "x", width * (0.22 if player_id == 0 else 0.78)))
     x = max(8.0, min(width - 8.0, raw_x))
-    ground_y = get_ground_y(screen, x)
+    ground_y = float(_state_get(player_state, "ground_y", get_ground_y(screen, x)))
 
     raw_y = _state_get(player_state, "y", None)
     y = float(ground_y if raw_y is None else raw_y)
@@ -387,7 +390,7 @@ def draw_stickman(screen, player_id, player_state):
     scale = max(0.5, min(2.0, float(_state_get(player_state, "scale", 1.0))))
     anim_time = float(_state_get(player_state, "anim_time", pygame.time.get_ticks() / 1000.0))
 
-    facing = _state_get(player_state, "facing", 1 if player_id == 1 else -1)
+    facing = _state_get(player_state, "facing", 1 if player_id == 0 else -1)
     facing = 1 if float(facing) >= 0 else -1
 
     action = _resolve_action(player_state, vy, on_ground, moving)
@@ -494,10 +497,10 @@ def initial_player_state(screen, player_id):
     the move module.
     """
     if player_id not in PLAYER_COLORS:
-        raise ValueError(f"player_id must be 1 or 2, got {player_id!r}")
+        raise ValueError(f"player_id must be 0 or 1, got {player_id!r}")
 
     width, height = screen.get_size()
-    x_ratio = 0.22 if player_id == 1 else 0.78
+    x_ratio = 0.22 if player_id == 0 else 0.78
     x = width * x_ratio
 
     return {
@@ -505,13 +508,14 @@ def initial_player_state(screen, player_id):
         "y": get_ground_y(screen, x),
         "vx": 0.0,
         "vy": 0.0,
-        "facing": 1 if player_id == 1 else -1,
+        "facing": 1 if player_id == 0 else -1,
         "on_ground": True,
         "standing_platform": None,
         "moving": False,
         "action": "idle",
         "anim_time": 0.0,
         "scale": 1.0,
+        "color": PLAYER_COLORS[player_id],
     }
 
 
@@ -523,11 +527,24 @@ def _preview():
     clock = pygame.time.Clock()
 
     from map import draw_background, update_dynamic_obstacle
-    from move import step_player
+    from move.apply_gravity import apply_gravity
+    from move.jump_logic import jump_logic
+    from move.update_position import update_position
+
+    def _step(state, direction, jump, screen, dt):
+        state["vx"] = direction * 300.0
+        if direction > 0:
+            state["facing"] = 1
+        elif direction < 0:
+            state["facing"] = -1
+        state["ground_y"] = get_ground_y(screen, state["x"])
+        jump_logic(state, jump)
+        apply_gravity(state, dt)
+        update_position(state, dt)
 
     current_round = 1
-    red = initial_player_state(screen, 1)
-    blue = initial_player_state(screen, 2)
+    red = initial_player_state(screen, 0)
+    blue = initial_player_state(screen, 1)
     running = True
 
     while running:
@@ -549,8 +566,8 @@ def _preview():
         keys = pygame.key.get_pressed()
         red_direction = int(keys[pygame.K_d]) - int(keys[pygame.K_a])
         blue_direction = int(keys[pygame.K_RIGHT]) - int(keys[pygame.K_LEFT])
-        step_player(red, red_direction, keys[pygame.K_w], screen, current_round, time_s, dt)
-        step_player(blue, blue_direction, keys[pygame.K_UP], screen, current_round, time_s, dt)
+        _step(red, red_direction, keys[pygame.K_w], screen, dt)
+        _step(blue, blue_direction, keys[pygame.K_UP], screen, dt)
 
         # Demonstrate the skill pose on demand without touching the real
         # move/skill modules.
@@ -570,8 +587,8 @@ def _preview():
 
         draw_background(screen)
         update_dynamic_obstacle(current_round, screen, time_s)
-        draw_stickman(screen, 1, red)
-        draw_stickman(screen, 2, blue)
+        draw_stickman(screen, 0, red)
+        draw_stickman(screen, 1, blue)
         pygame.display.flip()
 
     pygame.quit()

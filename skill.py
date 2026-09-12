@@ -4,8 +4,8 @@ The module deliberately keeps keyboard input, cooldown bookkeeping, and
 attack-range generation separate from movement and rendering.  It expects to
 be called once per frame for each player, in this order:
 
-    red_skill = skill_trigger(1, keys, red_state, game_mode)
-    blue_skill = skill_trigger(2, keys, blue_state, game_mode)
+    red_skill = skill_trigger(0, keys, red_state, game_mode)
+    blue_skill = skill_trigger(1, keys, blue_state, game_mode)
 
 It mutates only the skill-related fields on ``player_state`` and the
 ``action`` field used by ``character_render.draw_stickman``.  Movement fields
@@ -17,8 +17,8 @@ Integration notes
 ``draw_stickman`` already renders the skill pose and sword effect whenever
 ``player_state["action"] == "skill"``.  For most games that is all you need:
 
-    character_render.draw_stickman(screen, 1, red_state)
-    character_render.draw_stickman(screen, 2, blue_state)
+    character_render.draw_stickman(screen, 0, red_state)
+    character_render.draw_stickman(screen, 1, blue_state)
 
 If you prefer to draw the slash effect separately, pass the returned
 ``anim_info`` to ``character_render.draw_skill_effect`` and do not also let
@@ -34,8 +34,8 @@ import character_render as cr
 
 
 SKILL_KEYS = {
-    1: pygame.K_f,
-    2: getattr(pygame, "K_BACKSLASH", 92),
+    0: pygame.K_f,
+    1: getattr(pygame, "K_BACKSLASH", 92),
 }
 
 # Base timings are shared by all standard game modes.  ``game_mode`` can be a
@@ -76,16 +76,16 @@ def _state_set(state, key, value):
 
 
 def _normalize_player_id(player_id):
-    """Accept 1/2 and the common red/blue string aliases."""
+    """Accept 0/1 and the common red/blue string aliases."""
     if isinstance(player_id, str):
         name = player_id.strip().lower()
-        if name in ("red", "p1", "player1", "1"):
+        if name in ("red", "0"):
+            return 0
+        if name in ("blue", "1"):
             return 1
-        if name in ("blue", "p2", "player2", "2"):
-            return 2
-    if player_id in (1, 2):
+    if player_id in (0, 1):
         return int(player_id)
-    raise ValueError(f"player_id must be 1 or 2, got {player_id!r}")
+    raise ValueError(f"player_id must be 0 or 1, got {player_id!r}")
 
 
 def _key_is_down(key_state, key):
@@ -280,7 +280,7 @@ def skill_trigger(player_id, key_state, player_state, game_mode):
     """Process one frame of skill input for one player.
 
     Args:
-        player_id: ``1`` for the red player (``F``), ``2`` for blue
+        player_id: ``0`` for the red player (``F``), ``1`` for blue
             (``\\``).  The string aliases ``"red"`` and ``"blue"`` are also
             accepted.
         key_state: A pressed-key structure such as ``pygame.key.get_pressed()``,
@@ -355,7 +355,7 @@ def skill_trigger(player_id, key_state, player_state, game_mode):
 
     anim_info = _build_skill_animation_info(player_id, config)
     anim_info["progress"] = progress
-    anim_info["color"] = cr.PLAYER_COLORS.get(player_id, cr.PLAYER_COLORS[1])
+    anim_info["color"] = cr.PLAYER_COLORS.get(player_id, cr.PLAYER_COLORS[0])
 
     return {
         "player_id": player_id,
@@ -385,8 +385,12 @@ def _as_rect(box):
         return None
 
 
-def _send_heal_interrupt(blood, defender_id, event):
-    """Tell the blood module to interrupt the defender's healing."""
+def _send_heal_interrupt(blood, defender_state, event):
+    """Tell the blood module to interrupt the defender's healing.
+
+    The blood module's ``interrupt_heal`` receives the defender's *state*
+    (not an id), matching ``blood.interrupt_heal(player_state)``.
+    """
     if blood is None:
         return
 
@@ -397,7 +401,7 @@ def _send_heal_interrupt(blood, defender_id, event):
         interrupt = getattr(blood, "interrupt_heal", None)
 
     if callable(interrupt):
-        interrupt(defender_id)
+        interrupt(defender_state)
         return
 
     if callable(blood):
@@ -405,7 +409,8 @@ def _send_heal_interrupt(blood, defender_id, event):
 
 
 def check_hit(attack_box, enemy_hitbox, attacker_id=None, defender_id=None,
-              damage=1, blood=None, on_hit=None, hit_players=None):
+              damage=1, blood=None, on_hit=None, hit_players=None,
+              defender_state=None):
     """Check one skill attack box against an enemy body hitbox.
 
     The two required arguments are the attack rectangle produced by
@@ -422,7 +427,7 @@ def check_hit(attack_box, enemy_hitbox, attacker_id=None, defender_id=None,
     * A second collision against the same defender can be suppressed by
       passing the ``skill_hit_players`` list stored on the attacker state.
     * On a valid hit, ``on_hit`` (if supplied) receives the damage event,
-      ``blood.interrupt_heal(defender_id)`` is called when available, and
+      ``blood.interrupt_heal(defender_state)`` is called when available, and
       the damage event is returned.
     """
     attack_rect = _as_rect(attack_box)
@@ -479,5 +484,5 @@ def check_hit(attack_box, enemy_hitbox, attacker_id=None, defender_id=None,
     if callable(on_hit):
         on_hit(event)
 
-    _send_heal_interrupt(blood, defender_id, event)
+    _send_heal_interrupt(blood, defender_state, event)
     return event

@@ -15,8 +15,7 @@ HILL_NEAR_LINE = (153, 158, 149)
 
 PLATFORM_WIDTH = 5
 
-GROUND_BASE_RATIO = 0.70
-GROUND_AMPLITUDE_RATIO = 0.08
+GROUND_MARGIN = 120  # 地面距屏幕底部的预留空间(像素),需与 init_game_context 保持一致
 
 # Each platform is a simple horizontal line.
 # Fields: x-center ratio, y ratio, length ratio, line color.
@@ -116,17 +115,19 @@ def _draw_hills(screen):
 
 
 def _draw_ground(screen):
-    """Draw the playable ground with one solid line and faint echo contours."""
+    """Draw the flat playable ground with one solid line and faint echoes."""
     screen_width, screen_height = screen.get_size()
-    points = _line_points(screen, GROUND_BASE_RATIO, GROUND_AMPLITUDE_RATIO)
-    polygon = points + [(screen_width, screen_height), (0, screen_height)]
+    ground_y = screen_height - GROUND_MARGIN
 
-    pygame.draw.polygon(screen, GROUND_PAPER, polygon)
-    pygame.draw.lines(screen, GROUND_LINE, False, points, 3)
+    pygame.draw.rect(
+        screen, GROUND_PAPER,
+        (0, int(ground_y), screen_width, GROUND_MARGIN),
+    )
+    pygame.draw.line(screen, GROUND_LINE, (0, int(ground_y)), (screen_width, int(ground_y)), 3)
 
     for offset, color in zip((6, 13, 21), GROUND_ECHO):
-        echo = [(x, min(screen_height, y + offset)) for x, y in points]
-        pygame.draw.lines(screen, color, False, echo, 1)
+        echo_y = int(ground_y + offset)
+        pygame.draw.line(screen, color, (0, echo_y), (screen_width, echo_y), 1)
 
 
 def draw_background(screen):
@@ -237,26 +238,8 @@ def draw_map(screen, current_round):
 
 
 def get_ground_y(screen, x):
-    """Return the top ground surface y at a given screen x coordinate."""
-    width, height = screen.get_size()
-    points = _line_points(screen, GROUND_BASE_RATIO, GROUND_AMPLITUDE_RATIO)
-
-    if x <= points[0][0]:
-        return points[0][1]
-    if x >= points[-1][0]:
-        return points[-1][1]
-
-    span = points[-1][0] - points[0][0]
-    if span <= 0:
-        return points[0][1]
-
-    position = (x - points[0][0]) / span * (len(points) - 1)
-    index = min(int(position), len(points) - 2)
-    fraction = position - index
-
-    x0, y0 = points[index]
-    x1, y1 = points[index + 1]
-    return y0 + (y1 - y0) * fraction
+    """Return the flat playable ground y (independent of x)."""
+    return screen.get_size()[1] - GROUND_MARGIN
 
 
 def get_map_bounds(screen=None, current_round=1, time_s=None):
@@ -279,9 +262,9 @@ def get_map_bounds(screen=None, current_round=1, time_s=None):
             raise RuntimeError("get_map_bounds needs a screen surface")
 
     width, height = screen.get_size()
-    ground_points = _line_points(screen, GROUND_BASE_RATIO, GROUND_AMPLITUDE_RATIO)
-    ground_top = min(point[1] for point in ground_points)
-    ground_polygon = ground_points + [(width, height), (0, height)]
+    ground_y = height - GROUND_MARGIN
+    ground_points = [(0, ground_y), (width, ground_y)]
+    ground_polygon = [(0, ground_y), (width, ground_y), (width, height), (0, height)]
 
     return {
         "screen": pygame.Rect(0, 0, width, height),
@@ -290,9 +273,9 @@ def get_map_bounds(screen=None, current_round=1, time_s=None):
             "polygon": ground_polygon,
             "rect": pygame.Rect(
                 0,
-                int(ground_top),
+                int(ground_y),
                 width,
-                max(1, int(height - ground_top)),
+                GROUND_MARGIN,
             ),
         },
         "platforms": _platform_geometry(screen, current_round, time_s),

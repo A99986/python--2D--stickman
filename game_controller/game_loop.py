@@ -7,13 +7,13 @@
     - 双人移动 / 跳跃 / 重力 / 边界(move 模块)。
     - 生存模式计时回血、受击打断(blood 模块)。
     - 实时血条(``draw_health_bar``)。
-    - 极简线条地面 + 火柴人渲染。
+    - 极简线条背景 + 悬浮平台(map 模块)。
+    - 火柴人渲染(``character_render.draw_stickman``)。
 
 尚未实现(后续模块接入时补全,预留在此说明):
-    - 技能系统(攻击范围 / 冷却 / 命中伤害,届时在事件处理与更新阶段接入
-      ``update_hp`` 与 ``interrupt_heal``)。
+    - 技能系统接入主循环(攻击范围 / 冷却 / 命中伤害,届时在事件处理与
+      更新阶段接入 ``skill.skill_trigger`` 与 ``update_hp``)。
     - 五局三胜计分与单局结算、快速下一局。
-    - 第五局动态悬空障碍。
     - 双模式选择界面(当前模式由 ``init_game_context`` 的 ``mode`` 参数决定)。
 """
 
@@ -25,16 +25,16 @@ from move.jump_logic import jump_logic
 from blood.update_heal_timer import update_heal_timer
 from blood.draw_health_bar import draw_health_bar
 
+import character_render
+import map as map_module
+
 from game_controller.get_global_context import get_global_context
 from game_controller.init_game_context import init_game_context
 
 # ---- 常量(极简线条风格,按需调整) ----
 FPS = 60
 MOVE_SPEED = 300.0                 # 水平移动速度(像素 / 秒)
-BG_COLOR = (24, 24, 28)            # 背景色
-GROUND_COLOR = (255, 255, 255)     # 地面线颜色
-STICK_HEIGHT = 70.0                # 火柴人总高(脚底到头顶)
-HEAD_RADIUS = 10.0                 # 头部半径
+HEALTH_BAR_Y_OFFSET = 40.0         # 血条中心相对脚底的上移量(像素)
 
 # 控制键映射:玩家0 / 玩家1 的 左 / 右 / 跳。
 KEYMAP = {
@@ -62,26 +62,6 @@ def update_players(context, dt):
         update_heal_timer(p, dt)
 
 
-def _draw_ground(screen, context):
-    """绘制地面线。"""
-    pygame.draw.line(screen, GROUND_COLOR,
-                     (0, context['ground_y']),
-                     (context['screen_width'], context['ground_y']), 2)
-
-
-def _draw_stickman(screen, player):
-    """以脚底 ``(x, y)`` 为基准绘制火柴人(极简线条风格)。"""
-    x = player['x']
-    y = player['y']
-    color = player['color']
-    pygame.draw.circle(screen, color, (int(x), int(y - 60)), int(HEAD_RADIUS), 2)  # 头
-    pygame.draw.line(screen, color, (x, y - 50), (x, y - 25), 2)                    # 躯干
-    pygame.draw.line(screen, color, (x, y - 45), (x - 15, y - 32), 2)               # 左臂
-    pygame.draw.line(screen, color, (x, y - 45), (x + 15, y - 32), 2)               # 右臂
-    pygame.draw.line(screen, color, (x, y - 25), (x - 13, y), 2)                    # 左腿
-    pygame.draw.line(screen, color, (x, y - 25), (x + 13, y), 2)                    # 右腿
-
-
 def game_loop(context=None, fps=FPS):
     """运行游戏主循环,直到退出。
 
@@ -105,6 +85,7 @@ def game_loop(context=None, fps=FPS):
     running = True
     while running:
         dt = clock.tick(fps) / 1000.0
+        time_s = pygame.time.get_ticks() / 1000.0
 
         # --- 事件处理 ---
         jump_pressed = {0: False, 1: False}
@@ -118,14 +99,16 @@ def game_loop(context=None, fps=FPS):
                     if event.key == keys['jump']:
                         jump_pressed[pid] = True
 
-        # --- 输入 -> 水平速度 / 起跳 ---
+        # --- 输入 -> 水平速度 / 朝向 / 起跳 ---
         pressed = pygame.key.get_pressed()
         for pid, p in enumerate(ctx['players']):
             keys = KEYMAP[pid]
             if pressed[keys['left']]:
                 p['vx'] = -MOVE_SPEED
+                p['facing'] = -1
             elif pressed[keys['right']]:
                 p['vx'] = MOVE_SPEED
+                p['facing'] = 1
             else:
                 p['vx'] = 0.0
             jump_logic(p, jump_pressed[pid])
@@ -134,11 +117,11 @@ def game_loop(context=None, fps=FPS):
         update_players(ctx, dt)
 
         # --- 渲染 ---
-        screen.fill(BG_COLOR)
-        _draw_ground(screen, ctx)
-        for p in ctx['players']:
-            _draw_stickman(screen, p)
-            draw_health_bar(screen, (p['x'], p['y'] - STICK_HEIGHT / 2),
+        map_module.draw_background(screen)
+        map_module.update_dynamic_obstacle(ctx['round'], screen, time_s)
+        for pid, p in enumerate(ctx['players']):
+            character_render.draw_stickman(screen, pid, p)
+            draw_health_bar(screen, (p['x'], p['y'] - HEALTH_BAR_Y_OFFSET),
                             p['hp'], p['max_hp'])
         pygame.display.flip()
 
